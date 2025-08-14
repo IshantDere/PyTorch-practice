@@ -56,7 +56,6 @@ class SmallGoogLeNet(nn.Module):
 
 model = SmallGoogLeNet()
 print(model)
-
 x = torch.randn(1, 3, 224, 224)
 output = model(x)
-print(output.shape)
+print(output.shape) 
