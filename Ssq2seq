@@ -1,0 +1,45 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+class Encoder(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super().__init__()
+        self.rnn = nn.GRU(input_dim, hidden_dim, batch_first=True)
+
+    def forward(self, x):
+        outputs, hidden = self.rnn(x)
+        return hidden
+class Decoder(nn.Module):
+    def __init__(self, output_dim, hidden_dim):
+        super().__init__()
+        self.rnn = nn.GRU(output_dim, hidden_dim, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x, hidden):
+        output, hidden = self.rnn(x, hidden)
+        prediction = self.fc(output)
+        return prediction, hidden
+class Seq2Seq(nn.Module):
+    def __init__(self, encoder, decoder):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, src, trg):
+        hidden = self.encoder(src)
+        outputs, _ = self.decoder(trg, hidden)
+        return outputs
+input_dim = output_dim = 5
+hidden_dim = 8
+batch_size = 2
+seq_len = 3
+
+encoder = Encoder(input_dim, hidden_dim)
+decoder = Decoder(output_dim, hidden_dim)
+model = Seq2Seq(encoder, decoder)
+
+src = torch.randn(batch_size, seq_len, input_dim)
+trg = torch.randn(batch_size, seq_len, 
+out = model(src, trg)
+print(out.shape)
