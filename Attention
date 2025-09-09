@@ -1,0 +1,37 @@
+import torch
+from torch import nn
+
+class Model(nn.Module):
+    def __init__(self,
+                 hidden_dim=512,
+                 out_channels=256
+                 ):
+        super().__init__()
+
+        self.emb = nn.Embedding(512,512)
+
+        self.q = nn.Linear(512,512)
+        self.k = nn.Linear(512,512)
+        self.v = nn.Linear(512,512)
+        self.softmax = nn.Softmax()
+        self.out = nn.Linear(512,out_channels)
+
+    def forward(self,x, mask=None):
+        x = self.emb(x)
+
+        q = self.q(x)
+        v = self.v(x)
+        k = self.k(x)
+
+        # print(q.shape, k.permute(0,2,1).shape)
+        mul = torch.bmm(q,k.permute(0,2,1))
+        soft = self.softmax(mul)
+        # print(soft.shape, v.shape)
+        out = soft @ v
+
+        out = self.out(out)
+        return out
+
+x = torch.randint(0, 100, (1, 5))
+model = Model(512,256)
+model(x).shape
