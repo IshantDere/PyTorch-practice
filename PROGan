@@ -1,0 +1,161 @@
+import torch
+from torch import nn
+from torch import optim
+from torch.utils.data import DataLoader
+import torchvision
+import torchvision.transforms as transforms
+from torchvision.utils import save_image
+
+class Conv(nn.Module):
+    def __init__(self, in_channels, out_channels,
+                 kernel_size,
+                 stride,
+                 padding,
+                 down = True):
+        super().__init__()
+
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels,
+                      out_channels,
+                      kernel_size, stride, padding)
+            if down
+
+            else nn.ConvTranspose2d(in_channels, out_channels,
+                                kernel_size, stride, padding),
+            nn.InstanceNorm2d(out_channels),
+
+            nn.LeakyReLU(0.2)
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+class Generator(nn.Module):
+    def __init__(self, z_dim, out_channels=3):
+        super().__init__()
+        self.z_dim = z_dim
+
+        channels = [512, 512, 256, 128, 64, 32]
+
+
+        self.initial = nn.Linear(z_dim, channels[0] * 4 * 4)
+
+        blocks = []
+        for i in range(len(channels) - 1):
+            blocks.append(
+                Conv(channels[i], channels[i+1],
+                     kernel_size=4, stride=2, padding=1, down=False)
+            )
+        self.blocks = nn.Sequential(*blocks)
+
+
+        self.final = nn.Sequential(
+            nn.Conv2d(channels[-1], out_channels, kernel_size=3, stride=1, padding=1),
+            nn.Tanh()
+        )
+
+    def forward(self, z):
+        x = self.initial(z)
+        x = x.view(-1, 512, 4, 4)
+        x = self.blocks(x)
+        return self.final(x)
+
+class Discriminator(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+
+        channels = [in_channels, 64, 128, 256, 512, 512]
+
+        blocks = []
+        for i in range(len(channels) - 1):
+            blocks.append(
+                Conv(channels[i], channels[i+1],
+                     kernel_size=4, stride=2, padding=1, down=True)
+            )
+        self.blocks = nn.Sequential(*blocks)
+
+        self.final = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(channels[-1] * 4 * 4, 1)
+        )
+
+    def forward(self, x):
+        x = self.blocks(x)
+        return self.final(x)
+
+if __name__ == "__main__":
+    z_dim = 128
+    Gen = Generator(z_dim)
+    Disc = Discriminator(3)
+
+    x = torch.randn(8, z_dim)
+    model = Gen(x)
+    out = Disc(model)
+
+    print(out.shape)
+
+def train():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Hyperparameters
+    z_dim = 128
+    lr = 2e-4
+    batch_size = 16
+    num_epochs = 5
+    img_size = 128
+
+    gen = Generator(z_dim).to(device)
+    disc = Discriminator(3).to(device)
+
+    criterion = nn.BCEWithLogitsLoss()
+    opt_gen = optim.Adam(gen.parameters(), lr=lr, betas=(0.5, 0.999))
+    opt_disc = optim.Adam(disc.parameters(), lr=lr, betas=(0.5, 0.999))
+
+    transform = transforms.Compose([
+        transforms.Resize((img_size, img_size)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5]*3, [0.5]*3)
+    ])
+    dataset = torchvision.datasets.CIFAR10(root="dataset/", train=True,
+                                           transform=transform, download=True)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    step = 0
+    for epoch in range(num_epochs):
+        for real, _ in loader:
+            real = real.to(device)
+            batch_size_curr = real.shape[0]
+
+            noise = torch.randn(batch_size_curr, z_dim).to(device)
+            fake = gen(noise)
+
+            disc_real = disc(real).reshape(-1)
+            lossD_real = criterion(disc_real, torch.ones_like(disc_real))
+
+            disc_fake = disc(fake.detach()).reshape(-1)
+            lossD_fake = criterion(disc_fake, torch.zeros_like(disc_fake))
+
+            lossD = (lossD_real + lossD_fake) / 2
+
+            opt_disc.zero_grad()
+            lossD.backward()
+            opt_disc.step()
+
+            output = disc(fake).reshape(-1)
+            lossG = criterion(output, torch.ones_like(output))
+
+            opt_gen.zero_grad()
+            lossG.backward()
+            opt_gen.step()
+
+            if step % 200 == 0:
+                print("Epoch [{}/{}] Step {} Loss D: {:.4f}, Loss G: {:.4f}".format(
+                    epoch, num_epochs, step, lossD.item(), lossG.item()
+                ))
+                with torch.no_grad():
+                    fake_imgs = gen(torch.randn(16, z_dim).to(device))
+                    save_image(fake_imgs * 0.5 + 0.5, "sample_{}.png".format(step), nrow=4)
+            step += 1
+
+if __name__ == "__main__":
+    train()
