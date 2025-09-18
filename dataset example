@@ -1,0 +1,22 @@
+import torch
+from torch.utils.data import Dataset, DataLoader
+
+class MyDataset(Dataset):
+    def __init__(self):
+        # Just some sample data (features and labels)
+        self.x = torch.arange(1, 11, dtype=torch.float32).unsqueeze(1)  
+        self.y = self.x * 2  
+
+    def __len__(self):
+        return len(self.x)
+
+    def __getitem__(self, idx):
+        return self.x[idx], self.y[idx]
+
+dataset = MyDataset()
+
+dataloader = DataLoader(dataset, batch_size=3, shuffle=True)
+
+
+for batch_x, batch_y in dataloader:
+    print(batch_x, batch_y)
