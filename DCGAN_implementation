@@ -1,0 +1,156 @@
+import torch
+from torch import nn
+from torch import optim
+from torch.optim import Adam
+from torchvision import datasets
+from torchvision import transforms
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+class Conv_Gen(nn.Module):
+    def __init__(self, in_channels,
+                 out_channels,
+                 kernel_size = [4,4],
+                 stride = [2,2],
+                 padding = 1):
+        super().__init__()
+
+        self.conv_gen = nn.Sequential(
+
+            nn.ConvTranspose2d(in_channels,
+                      out_channels,
+                      kernel_size,
+                      stride,
+                      padding),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU()
+        )
+
+    def forward(self,x):
+        x = self.conv_gen(x)
+        return x
+
+class Conv_Disc(nn.Module):
+    def __init__(self, in_channels,
+                 out_channels,
+                 kernel_size = [4,4],
+                 stride = [2,2],
+                 padding = 1):
+        super().__init__()
+
+        self.conv_disc = nn.Sequential(
+            nn.Conv2d(in_channels,
+                        out_channels,
+                        kernel_size,
+                        stride,
+                        padding),
+            nn.BatchNorm2d(out_channels),
+
+            nn.LeakyReLU(0.2)
+        )
+
+    def forward(self, x):
+        return self.conv_gen(x)
+
+class Generator(nn.Module):
+    def __init__(self,
+                 z_dim,
+                 out_features,
+                 img_channels):
+        super().__init__()
+
+        self.gen = nn.Sequential(
+            nn.ConvTranspose2d(100, out_features*16, 4,2,1),
+            Conv_Gen(out_features*16, out_features*8,
+                     4, 2, 1),
+            Conv_Gen(out_features*8, out_features*4,
+                     4, 2, 1),
+            Conv_Gen(out_features*4, out_features*2,
+                     4,2, 1),
+            Conv_Gen(out_features*2, img_channels,
+                     4,2, 1),
+
+            nn.Tanh()
+        )
+
+    def forward(self, x):
+        return self.gen(x)
+
+class Discriminator(nn.Module):
+    def __init__(self, channels_img,
+                 feature_d):
+        super().__init__()
+
+        self.disc = nn.Sequential(
+
+            Conv_Disc(channels_img, feature_d, 4, 2,1),
+            Conv_Disc(feature_d, feature_d*2, 4,2,1),
+            Conv_Disc(feature_d*2, feature_d*4, 4,2,1),
+            Conv_Disc(feature_d*4, feature_d*8, 4,2,1),
+            nn.Conv2d(feature_d*8, 1, 4,2,1),
+
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.disc(x)
+
+#hyperparameters
+
+learning_rate = 0.001
+device = "cuda" if torch.cuda.is_available() else "cpu"
+batch_size = 32
+z_dim = 100
+out_features = 32
+img_channels = 1
+channels_img = 1
+features_d = 32
+num_epochs = 5
+step = 0
+
+transform = transforms.Compose([
+    transforms.ToTensor()
+])
+
+dataset = datasets.MNIST(root = "dataset", train = True,
+                         transform = transforms, download = True)
+dataloader = DataLoader(dataset = dataset, batch_size = batch_size,
+                    shuffle = True)
+gen = Generator(z_dim, out_features, img_channels).to(device)
+disc = Discriminator(channels_img, features_d).to(device)
+
+criterion = nn.BCELoss()
+optim_gen = optim.Adam(gen.parameters(), lr = learning_rate)
+optim_disc = optim.Adam(disc.parameters(), lr = learning_rate)
+
+for epoch in range(num_epochs):
+    for img, idx in dataloader:
+
+
+        real = real.to(device)
+        batch_size = real.size(0)
+
+        ### Train Discriminator
+        noise = torch.randn(batch_size, z_dim, 1, 1).to(device)
+        fake = gen(noise)
+
+        label_real = torch.ones(batch_size, 1, 1, 1).to(device)
+        label_fake = torch.zeros(batch_size, 1, 1, 1).to(device)
+
+        output_real = disc(real).reshape(-1, 1)
+        lossD_real = criterion(output_real, label_real)
+
+        output_fake = disc(fake.detach()).reshape(-1, 1)
+        lossD_fake = criterion(output_fake, label_fake)
+
+        lossD = (lossD_real + lossD_fake) / 2
+        disc.zero_grad()
+        lossD.backward()
+        optim_disc.step()
+
+        ### Train Generator
+        output = disc(fake).reshape(-1, 1)
+        lossG = criterion(output, label_real)
+        gen.zero_grad()
+        lossG.backward()
+        optim_gen.step()
