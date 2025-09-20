@@ -1,0 +1,125 @@
+import torch
+from torch import nn
+from torch import optim
+from torchvision import datasets
+from torchvision import transforms
+from torch.utils.data import DataLoader, Dataset
+from datasets import load_dataset
+from tqdm import tqdm
+
+class Conv(nn.Module):
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 kernel_size=(2,2),
+                 stride=(2,2),
+                 padding=0):
+        super().__init__()
+
+        self.conv1 = nn.Conv2d(in_channels,
+                               out_channels,
+                               kernel_size,
+                               stride,
+                               padding)
+        self.norm = nn.InstanceNorm2d(out_channels)
+        self.act = nn.SiLU()
+
+    def forward(self,x):
+        x = self.conv1(x)
+        x = self.norm(x)
+        x = self.act(x)
+        return x
+
+class Classifier(nn.Module):
+    def __init__(self,
+                 in_channels=1,
+                 out_channels=10,
+                 hidden_dim=32,
+                 n_layers=5):
+        super().__init__()
+
+        self.layers = []
+
+        for _ in range(n_layers):
+            self.layers.append(
+                Conv(in_channels,
+                     hidden_dim,
+                     )
+            )
+            in_channels = hidden_dim
+            hidden_dim = hidden_dim * 2
+
+        self.out = nn.Linear(1152,out_channels)
+
+    def forward(self,x):
+        for layer in self.layers:
+            x = layer(x)
+        x = x.flatten(start_dim=1)
+        x = self.out(x)
+        return x
+
+x = torch.randn(1,1,28,28)
+classifier = Classifier(n_layers=3)
+classifier(x).shape
+
+class Datasets(Dataset):
+    def __init__(self,
+                 name = "mnist"):
+
+        self.dataset = load_dataset("mnist")
+        self.train_dataset = self.dataset["train"]
+
+        self.transform = transforms.Compose([
+            transforms.ToTensor()
+        ])
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        sample = self.train_dataset[idx]
+
+        img = sample['image']
+        label = sample['label']
+
+        img = self.transform(img)
+
+        label = torch.tensor(label)
+
+        return img, label
+
+model = Classifier(n_layers=3)
+
+# hyper parameyters
+lr = 0.0001
+batch_size = 4
+optim = torch.optim.Adam(model.parameters(),
+                         lr=lr)
+epochs = 8
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+model = model.to(device)
+dataset = Datasets()
+loss_fn = nn.CrossEntropyLoss()
+dataloader = torch.utils.data.DataLoader(
+    dataset,
+    batch_size=batch_size,
+    shuffle=True
+)for epoch in tqdm(range(epochs)):
+    step = 0
+    for img, label in tqdm(dataloader):
+
+        img = img.to(device)
+        label = label.to(device)
+
+        y_pred = model(img)
+        loss = loss_fn(y_pred, label)
+
+        optim.zero_grad()
+
+        loss.backward()
+
+        optim.step()
+        print(f"{step} for this loss is {loss}")
+
+        step += 1
+
