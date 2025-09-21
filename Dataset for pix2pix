@@ -1,0 +1,77 @@
+import torch
+from torch import nn
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+from datasets import load_dataset
+from tqdm import tqdm
+
+class Pix2PixDataset(Dataset):
+    def __init__(self, name="facades", split="train"):
+        self.dataset = load_dataset(name, split=split)
+
+        self.transform = transforms.Compose([
+            transforms.Resize((256,256)),
+            transforms.ToTensor(),
+        ])
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        sample = self.dataset[idx]
+        inp = sample["image"]
+        target = sample["label"] if "label" in sample else sample["image"]
+        inp = self.transform(inp)
+        target = self.transform(target)
+        return inp, target
+
+#HYPERPARA
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+lr = 0.0001
+batch_size = 4
+epochs = 5
+opt_gen = torch.optim.Adam(gen.parameters(), lr=lr)
+opt_disc = torch.optim.Adam(disc.parameters(), lr=lr)
+loss = nn.BCELoss()
+gen = gen.to(device)
+disc = disc.to(device)
+
+dataset = Pix2PixDataset(name="facades", split="train")
+dataloader = torch.utils.data.DataLoader(
+    dataset,
+    batch_size=batch_size,
+    shuffle=True
+)
+
+for epoch in tqdm(range(epochs)):
+    step = 0
+    for inp, target in tqdm(dataloader):
+
+        inp = inp.to(device)
+        target = target.to(device)
+
+        fake = gen(inp)
+
+        D_real = disc(inp, target)
+        D_fake = disc(inp, fake.detach())
+
+        loss_disc = (loss_fn(D_real, torch.ones_like(D_real)) +
+                     loss_fn(D_fake, torch.zeros_like(D_fake))) / 2
+
+        opt_disc.zero_grad()
+        loss_disc.backward()
+        opt_disc.step()
+
+        D_fake = disc(inp, fake)
+        loss_gen_adv = loss_fn(D_fake, torch.ones_like(D_fake))
+        loss_gen_l1 = l1_loss(fake, target) * 100
+        loss_gen = loss_gen_adv + loss_gen_l1
+
+        opt_gen.zero_grad()
+        loss_gen.backward()
+        opt_gen.step()
+
+        print(f"{step} for this loss is {loss_gen_l1}")
+
+        step += 1
