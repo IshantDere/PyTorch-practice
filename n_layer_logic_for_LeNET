@@ -1,0 +1,62 @@
+import torch
+from torch import nn
+
+class Conv(nn.Module):
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 kernel_size=(5,5),
+                 stride=(1,1),
+                 padding=0):
+        super().__init__()
+
+        self.conv1 = nn.Conv2d(in_channels,
+                               out_channels,
+                               kernel_size,
+                               stride,
+                               padding)
+        self.act = nn.ReLU()
+        self.pool = nn.AvgPool2d(kernel_size)
+
+    def forward(self,x):
+        x = self.conv1(x)
+        x = self.act(x)
+        x = self.pool(x)
+        return x
+
+class LeNET(nn.Module):
+    def __init__(self,
+                 in_channels,
+                 hidden_dim  ,
+                 out_channels,
+                 n_layers = 3):
+        super().__init__()
+
+        out_channels = hidden_dim
+        self.num_list = [1, 6, 16, 120]
+        self.layers = []
+
+        for i in range(n_layers):
+            self.layers.append(
+                Conv(self.num_list[0+i], self.num_list[i+1],
+                        )
+            )
+            in_channels = hidden_dim
+            hidden_dim = self.num_list[i+1],
+        print(self.layers)
+
+        self.layer1 = nn.Linear(120, 84)
+        self.layer2 = nn.Linear(84, 10)
+
+    def forward(self, x):
+        x = self.layers(x)
+        x = x.squeeze(-1).squeeze(-1)
+        x = self.act(self.layer1(x))
+        x = self.layer2(x)
+
+
+        return x
+
+x = torch.randn(64,1,32,32)
+model = LeNET(1, 6, 120)
+model(x).shape
