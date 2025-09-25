@@ -1,0 +1,33 @@
+import torch
+from torch import nn
+from torch.utils.data import Dataset, DataLoader
+from PIL import Image
+import os
+from torchvision import transforms
+
+class custom_dataset(nn.Module):
+    def __init__(self,
+                 root_dir):
+        super().__init__()
+        self.root_dir = root_dir
+
+        self.files = os.listdir(os.path.join(root_dir, 'trainA'))
+
+        self.transform = transforms.Compose([
+            transforms.ToTensor
+        ])
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        imgA = Image.open(os.path.join(self.root_dir, 'trainA', self.files[idx]))
+        imgB = Image.open(os.path.join(self.root_dir, 'trainB', self.files[idx]))
+
+        imgA = self.transform(imgA)
+        imgB = self.transform(imgB)
+
+        return imgA, imgB
+
+my_dataseet = custom_dataset('/content/dataset')
+dataloader = DataLoader(my_dataseet, 1)
