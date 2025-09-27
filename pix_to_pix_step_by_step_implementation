@@ -1,0 +1,198 @@
+import torch
+from torch import nn
+from datasets import load_dataset
+from torchvision import transforms
+from tqdm import tqdm
+import wandb
+from PIL import Image
+from torch.utils.data import Dataset, DataLoader
+import os
+
+class Conv(nn.Module):
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 kernel_size=(2,2),
+                 stride=(2,2),
+                 padding=0):
+        super().__init__()
+
+        self.conv1 = nn.Conv2d(in_channels,
+                               out_channels,
+                               kernel_size,
+                               stride,
+                               padding)
+        self.norm = nn.InstanceNorm2d(out_channels)
+        self.act = nn.SiLU()
+
+    def forward(self,x):
+        x = self.conv1(x)
+        x = self.norm(x)
+        x = self.act(x)
+        return x
+
+class ConvT(nn.Module):
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 kernel_size=(2,2),
+                 stride=(2,2),
+                 padding=0):
+        super().__init__()
+
+        self.conv1 = nn.ConvTranspose2d(in_channels,
+                               out_channels,
+                               kernel_size,
+                               stride,
+                               padding)
+        self.norm = nn.InstanceNorm2d(out_channels)
+        self.act = nn.SiLU()
+
+    def forward(self,x):
+        x = self.conv1(x)
+        x = self.norm(x)
+        x = self.act(x)
+        return x
+
+class Generator(nn.Module):
+    def __init__(self,
+                 in_channels=3,
+                 out_channels=3,
+                 hidden_dims = [64,128,256,512,512,512,512,512]):
+        super().__init__()
+
+        in_channels_decoder = in_channels
+        self.encoder_layers = []
+        self.decoder_layers = []
+        for i in range(len(hidden_dims)):
+            self.encoder_layers.append(Conv(in_channels_decoder,
+                 hidden_dims[i],
+                (2,2),
+                (2,2),
+                0))
+            in_channels_decoder = hidden_dims[i]
+
+        # decoder_hidden_dims = reversed(hidden_dims)
+        for i in range(len(hidden_dims)-2,-1,-1):
+            self.decoder_layers.append(
+                ConvT(in_channels_decoder,
+                      hidden_dims[i])
+            )
+            in_channels_decoder = hidden_dims[i]
+
+
+        self.out = Conv(64,3,(3,3),(1,1),1)
+
+    def forward(self,x):
+        encoder_layers_to_save = []
+        y = x
+        j = 0
+        for encoder in self.encoder_layers:
+            y = encoder(y)
+            # print(y.shape, j)
+            j += 1
+            encoder_layers_to_save.append(y)
+
+        x_dec = y
+        i = len(self.decoder_layers)-1
+        for j , decoder in enumerate(self.decoder_layers):
+            x_dec = decoder(x_dec)
+            if j == 0:
+                x_dec = x_dec
+            else:
+                x_dec = x_dec + encoder_layers_to_save[i]
+            i -= 1
+
+        x_dec = self.out(x_dec)
+        return x_dec
+
+x = torch.randn(1,3,1024,1024)
+gen = Generator()
+x_out = gen(x)
+x_out.shape
+
+class Pix2PixDataset(Dataset):
+    def __init__(self,
+                 root_dir):
+        super().__init__()
+
+        self.root_dir = root_dir
+
+        self.files = os.listdir(os.path.join(root_dir, 'trainA'))*100
+
+        self.transform = transforms.Compose([
+            transforms.Resize((1024,1024)),
+            transforms.ToTensor()
+        ])
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self,idx):
+        imgA = Image.open(os.path.join(self.root_dir, 'trainA', self.files[idx])).convert('RGB')
+        imgB = Image.open(os.path.join(self.root_dir, 'trainB', self.files[idx])).convert('RGB')
+
+        imgA = self.transform(imgA)
+        imgB = self.transform(imgB)
+
+        return imgA, imgB
+
+dataset = Pix2PixDataset('/content/dataset')
+dataloader = DataLoader(dataset,
+                        2,
+                        True)
+
+generator = Generator()
+discriminator = Generator()
+
+lr_gen = 0.0001
+lr_disc = 0.0001
+
+optim_gen = torch.optim.Adam(generator.parameters(),
+                             lr=lr_gen)
+optim_disc = torch.optim.Adam(generator.parameters(),
+                             lr=lr_disc)
+epochs = 4
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+generator = generator.to(device)
+discriminator = discriminator.to(device)
+loss_fn_gen = nn.L1Loss()
+loss_fn_disc = nn.BCELoss()
+
+for epoch in range(epochs):
+    for x , y in tqdm(dataloader):
+        x = x.to(device)
+        y = y.to(device)
+
+        y_pred = generator(x)
+
+        loss_gen = loss_fn_gen(y_pred,y)
+        with torch.no_grad():
+            y_pred_fake_disc = discriminator(y_pred)
+            y_pred_real_disc = discriminator(y)
+
+        loss_disc_fake = loss_fn_disc(y_pred_fake_disc, torch.zeros_like(y_pred_fake_disc))
+        loss_disc_real = loss_fn_disc(y_pred_real_disc, torch.ones_like(y_pred_real_disc))
+        loss_disc = loss_disc_fake + loss_disc_real
+
+        total_gen_loss = loss_fn_gen +  loss_disc
+
+        optim_gen.zero_grad()
+        total_gen_loss.backward()
+        optim_gen.step()
+
+        with torch.no_grad():
+            y_pred_gen = generator(x)
+
+        y_pred_fake_disc = discriminator(y_pred_gen)
+        y_pred_real_disc = discriminator(y)
+
+        loss_disc_fake = loss_fn_disc(y_pred_fake_disc, torch.zeros_like(y_pred_fake_disc))
+        loss_disc_real = loss_fn_disc(y_pred_real_disc, torch.ones_like(y_pred_real_disc))
+        loss_disc = loss_disc_fake + loss_disc_real
+
+        optim_disc.zero_grad()
+        loss_disc.backward()
+        optim_disc.step()
+
+
