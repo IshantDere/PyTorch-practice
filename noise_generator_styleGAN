@@ -1,0 +1,32 @@
+import torch
+from torch import nn
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+class Fc_layer(nn.Module):
+    def __init__(self,
+                 in_channels,
+                 hidden_dim,
+                 n_layers = 8):
+        super().__init__()
+
+        layers = []
+        for i in range(n_layers):
+            layers.append(
+                Linear_layer(in_channels,
+                    hidden_dim)
+            )
+            in_channels = hidden_dim
+            hidden_dim = hidden_dim 
+
+        self.layers = nn.Sequential(*layers)
+        
+        print(self.layers)
+    
+    def forward(self, x):
+        x = self.layers(x)
+        return x
+
+x = torch.randn(2, 512).to(device)
+model = Fc_layer(512, 512).to(device)
+model(x).shape
